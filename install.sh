@@ -13,16 +13,6 @@ if [ -z "$BOOKMARKLET" ]; then
   exit 1
 fi
 
-BOOKMARKS_FILE="$HOME/Library/Application Support/Google/Chrome/Default/Bookmarks"
-
-if [ ! -f "$BOOKMARKS_FILE" ]; then
-  echo "Chrome bookmarks file not found. Copying to clipboard instead."
-  echo "$BOOKMARKLET" | tr -d '\n' | pbcopy
-  echo "Copied '${NAME}' bookmarklet to clipboard."
-  echo "Create a new bookmark and paste as the URL."
-  exit 0
-fi
-
 # Friendly display names for known bookmarklets
 case "$NAME" in
   aws-federated-deeplink) DISPLAY_NAME="Generate Deeplink" ;;
@@ -30,7 +20,29 @@ case "$NAME" in
   *)                      DISPLAY_NAME="$NAME" ;;
 esac
 
-python3 - "$BOOKMARKS_FILE" "$BOOKMARKLET" "$DISPLAY_NAME" <<'PYTHON'
+CHROME_DIR="$HOME/Library/Application Support/Google/Chrome"
+
+# Find all profile directories that have a Bookmarks file
+PROFILES=()
+for dir in "$CHROME_DIR"/Default "$CHROME_DIR"/Profile\ *; do
+  [ -f "$dir/Bookmarks" ] && PROFILES+=("$dir/Bookmarks")
+done
+
+if [ ${#PROFILES[@]} -eq 0 ]; then
+  echo "No Chrome profiles found. Copying to clipboard instead."
+  echo "$BOOKMARKLET" | tr -d '\n' | pbcopy
+  echo "Copied '${NAME}' bookmarklet to clipboard."
+  echo "Create a new bookmark and paste as the URL."
+  exit 0
+fi
+
+echo "Installing '${DISPLAY_NAME}' to ${#PROFILES[@]} Chrome profile(s)..."
+
+for BOOKMARKS_FILE in "${PROFILES[@]}"; do
+  PROFILE_DIR=$(dirname "$BOOKMARKS_FILE")
+  PROFILE_NAME=$(basename "$PROFILE_DIR")
+
+  python3 - "$BOOKMARKS_FILE" "$BOOKMARKLET" "$DISPLAY_NAME" <<'PYTHON'
 import json, sys, uuid, time
 
 bookmarks_path = sys.argv[1]
@@ -73,8 +85,9 @@ bar["date_modified"] = str(chrome_epoch)
 
 with open(bookmarks_path, "w") as f:
     json.dump(data, f, indent=3)
-
-print(f"Added '{display_name}' to Chrome bookmarks bar.")
 PYTHON
 
-echo "Restart Chrome (or open a new tab) to see it."
+  echo "  ✓ ${PROFILE_NAME}"
+done
+
+echo "Done. Quit and reopen Chrome to see the bookmarks."
